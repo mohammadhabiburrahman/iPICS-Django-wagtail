@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  web:
+    image: ipics/habib-inneed:latest
+    restart: on-failure
+    command: gunicorn ipics.wsgi --bind 0.0.0.0:8000
+    ports:
+      - 8000:8000
+    volumes:
+        [.:/code,]
+
+  nginx:
+    image: nginx
+    restart: always
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./nginx/cert:/etc/nginx/cert
+      - ./staticfiles:/static
+      - ./media:/media
+    depends_on:
+      - web

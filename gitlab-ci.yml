@@ -1,0 +1,105 @@
+image: docker:latest
+variables:
+  AWS_DEFAULT_REGION: us-east-1
+  TASK_DEFINTION_NAME: ipics-djnago-cluster
+  CLUSTER_NAME: ipics-admin-dev
+  SERVICE_NAME: ipics-djnago-service
+  APP_NAME: ipics/django
+  # DOCKER_HOST: tcp://docker:2375
+
+services:
+- docker:dind
+before_script:
+  - apk add --no-cache curl jq python3 py-pip
+  - pip install awscli
+  - pip install awscli --upgrade
+  - pip3 install awscli --upgrade
+  - aws --region us-east-1 ecr get-login-password | docker login --username AWS --password-stdin 596343339730.dkr.ecr.us-east-1.amazonaws.com/ipics/django
+  # - aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+  # - aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+  # - aws configure set region $AWS_DEFAULT_REGION
+  # - aws ecr get-login-password | docker login --username AWS --password-stdin $REPOSITORY_URL
+  # - aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 596343339730.dkr.ecr.us-east-1.amazonaws.com/ipics/django
+  - IMAGE_TAG="$(echo $CI_COMMIT_SHA | head -c 8)"
+
+build:
+  stage: build
+  script:
+    - echo "Building image..."
+    - docker build -t $REPOSITORY_URL:latest .
+    - echo "Tagging image..."
+    # - docker tag $REPOSITORY_URL:latest $REPOSITORY_URL:latest
+    - docker tag $REPOSITORY_URL:latest $REPOSITORY_URL:$IMAGE_TAG
+    - echo "Pushing image..."
+    - docker push $REPOSITORY_URL:latest
+    - docker push $REPOSITORY_URL:$IMAGE_TAG
+  only:
+    - Dev
+
+deploy:
+  stage: deploy
+  script:
+    - echo $REPOSITORY_URL:$IMAGE_TAG
+    - TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition "$TASK_DEFINTION_NAME" --region "${AWS_DEFAULT_REGION}")
+    - echo "Deploying application..."
+    - NEW_CONTAINER_DEFINTIION=$(echo $TASK_DEFINITION | jq --arg IMAGE "$REPOSITORY_URL:$IMAGE_TAG" '.taskDefinition.containerDefinitions[0].image = $IMAGE | .taskDefinition.containerDefinitions[0]')
+    - echo "Registering new container definition..."
+    - aws ecs register-task-definition --region "${AWS_DEFAULT_REGION}" --family "${TASK_DEFINTION_NAME}" --container-definitions "${NEW_CONTAINER_DEFINTIION}" --memory 2048
+    - echo "Updating the service..."
+    - aws ecs update-service --region "${AWS_DEFAULT_REGION}" --cluster "${CLUSTER_NAME}" --service "${SERVICE_NAME}"  --task-definition "${TASK_DEFINITION_NAME}"
+    - echo "Application successfully deployed."
+  only:
+    - Dev
+
+# deploy:
+#   stage: deploy
+#   script:
+#     - echo $REPOSITORY_URL:$IMAGE_TAG
+#     - TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition "$TASK_DEFINTION_NAME" --region "${AWS_DEFAULT_REGION}")
+#     - NEW_CONTAINER_DEFINTIION=$(echo $TASK_DEFINITION | python $CI_PROJECT_DIR/update_task_definition_image.py $REPOSITORY_URL:$IMAGE_TAG)
+#     - echo "Registering new container definition..."
+#     - aws ecs register-task-definition --region "${AWS_DEFAULT_REGION}" --family "${TASK_DEFINTION_NAME}" --container-definitions "${NEW_CONTAINER_DEFINTIION}"
+#     - echo "Updating the service..."
+#     - aws ecs update-service --region "${AWS_DEFAULT_REGION}" --cluster "${CLUSTER_NAME}" --service "${SERVICE_NAME}"  --task-definition "${TASK_DEFINTION_NAME}"
+
+#   only:
+#     - develop
+
+
+# image: docker:latest
+
+# services:
+#   - docker:dind
+
+# before_script:
+#   - docker info
+#   - docker-compose --version
+
+# buildJob:
+#   stage: build
+#   tags:
+#     - docker
+#   script:
+#     - docker-compose build
+
+
+# unit-test-job:   # This job runs in the test stage.
+#   stage: test    # It only starts when the job in the build stage completes successfully.
+#   script:
+#     - echo "Running unit tests... This will take about 60 seconds."
+#     - sleep 60
+#     - echo "Code coverage is 90%"
+
+# lint-test-job:   # This job also runs in the test stage.
+#   stage: test    # It can run at the same time as unit-test-job (in parallel).
+#   script:
+#     - echo "Linting code... This will take about 10 seconds."
+#     - sleep 10
+#     - echo "No lint issues found."
+
+# deploy-job:      # This job runs in the deploy stage.
+#   stage: deploy  # It only runs when *both* jobs in the test stage complete successfully.
+#   script:
+#     - echo "Deploying application..."
+#     - echo "Application successfully deployed."
+

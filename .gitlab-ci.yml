@@ -1,0 +1,58 @@
+image: docker:latest
+variables:
+  AWS_DEFAULT_REGION: us-east-1
+  TASK_DEFINTION_NAME: ipics-djnago-cluster
+  CLUSTER_NAME: ipics-admin-dev
+  SERVICE_NAME: ipics-djnago-service
+  APP_NAME: ipics/django
+  # DOCKER_HOST: tcp://docker:2375
+
+services:
+- docker:dind
+before_script:
+  - apk add --no-cache curl jq python3 py-pip
+  - pip install awscli
+  - pip install awscli --upgrade
+  - pip3 install awscli --upgrade
+  - aws ecr get-login-password | docker login --username AWS --password-stdin $REPOSITORY_URL
+  - IMAGE_TAG="$(echo $CI_COMMIT_SHA | head -c 8)"
+
+build:
+  stage: build
+  script:
+    - echo "Building image..."
+    - docker build -t $REPOSITORY_URL:latest .
+    - echo "Tagging image..."
+    # - docker tag $REPOSITORY_URL:latest $REPOSITORY_URL:latest
+    - docker tag $REPOSITORY_URL:latest $REPOSITORY_URL:$IMAGE_TAG
+    - echo "Pushing image..."
+    - docker push $REPOSITORY_URL:latest
+    - docker push $REPOSITORY_URL:$IMAGE_TAG
+  only:
+    - Dev
+
+deploy:
+  stage: deploy
+  script:
+    - echo $REPOSITORY_URL:$IMAGE_TAG
+    - TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition "$TASK_DEFINTION_NAME" --region "${AWS_DEFAULT_REGION}")
+    - echo "Deploying application..."
+    - NEW_CONTAINER_DEFINTIION=$(echo $TASK_DEFINITION | jq --arg IMAGE "$REPOSITORY_URL:$IMAGE_TAG" '.taskDefinition.containerDefinitions[0].image = $IMAGE | .taskDefinition.containerDefinitions[0]')
+    - echo "Registering new container definition..."
+    - aws ecs register-task-definition --region "${AWS_DEFAULT_REGION}" --family "${TASK_DEFINTION_NAME}" --container-definitions "${NEW_CONTAINER_DEFINTIION}" --memory 2048
+    - echo "Updating the service..."
+    - aws ecs update-service --region "${AWS_DEFAULT_REGION}" --cluster "${CLUSTER_NAME}" --service "${SERVICE_NAME}"  --task-definition "${TASK_DEFINITION_NAME}"
+    - echo "Application successfully deployed."
+  only:
+    - Dev
+
+
+
+
+# unit-test-job:   # This job runs in the test stage.
+#   stage: test    # It only starts when the job in the build stage completes successfully.
+#   script:
+#     - echo "Running unit tests... This will take about 60 seconds."
+#     - sleep 60
+#     - echo "Code coverage is 90%"
+

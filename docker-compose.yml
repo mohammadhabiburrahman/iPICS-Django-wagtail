@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  web:
+    image: ipics/habib-inneed:latest
+    build: .
+    command: python3 manage.py runserver 0.0.0.0:8000
+    volumes:
+        [.:/code,]
+    ports:
+      ["8000:8000",]
+  
+  nginx:
+    image: nginx
+    restart: always
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./nginx/cert:/etc/nginx/cert
+      - ./staticfiles:/static
+      - ./media:/media
+    depends_on:
+      - web
+
+
+
+# version: "3.8"
+
+# services:
+#   web:
+#     image: eap_web:latest
+#     build: .
+#     command: python3 manage.py runserver 0.0.0.0:8000
+#     volumes:
+#       - ./pyproject.toml:/srv/eap/pyproject.toml
+#       - ./poetry.lock:/srv/eap/poetry.lock
+#       - ./src:/srv/eap/src
+#       - /srv/eap/src/tweepy
+#       - /srv/eap/src/ffprobe
+#       - ./db.sqlite3:/srv/eap/db.sqlite3
+#       - ./static:/srv/eap/static
+#       - ./media:/srv/eap/media
+#     ports:
+#       - 8000:8000
+#     env_file: .env.local
